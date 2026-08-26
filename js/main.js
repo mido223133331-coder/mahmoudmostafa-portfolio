@@ -27,9 +27,12 @@ navLinks.forEach(link => {
 const themeToggle = document.getElementById('themeToggle');
 const langToggle = document.getElementById('langToggle');
 
-if (window.supabase && window.SUPABASE_CONFIG) {
-    const supabaseClient = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
-    supabaseClient.from('visitors').insert({ page: window.location.pathname }).then(({ error }) => {
+const siteSupabase = window.supabase && window.SUPABASE_CONFIG
+    ? window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey)
+    : null;
+
+if (siteSupabase) {
+    siteSupabase.from('visitors').insert({ page: window.location.pathname }).then(({ error }) => {
         if (error) console.warn('Visitor tracking unavailable:', error.message);
     });
 }
@@ -619,6 +622,58 @@ document.addEventListener('keydown', (event) => {
 buildVideoGallery();
 renderHorizontalVideos();
 
+async function loadManagedContent() {
+    if (!siteSupabase || !document.querySelector('.portfolio-grid')) return;
+    const { data, error } = await siteSupabase.from('site_content').select('*').eq('is_visible', true).order('sort_order');
+    if (error || !data?.length) return;
+
+    data.filter(item => item.content_type === 'skill').forEach(item => {
+        const list = document.querySelector('.skills-list');
+        if (list && !Array.from(list.children).some(skill => skill.textContent === item.title)) {
+            const skill = document.createElement('li');
+            skill.textContent = item.title;
+            list.appendChild(skill);
+        }
+    });
+
+    data.filter(item => item.content_type === 'portfolio').forEach(item => {
+        const grid = document.querySelector('.portfolio-grid');
+        const card = document.createElement('div');
+        card.className = 'portfolio-item';
+        card.dataset.category = item.category || 'all';
+        card.innerHTML = `<div class="portfolio-image"><img src="${item.image_url || 'images/1159372.png'}" alt=""></div><div class="portfolio-info"><h3></h3><p></p></div>`;
+        card.querySelector('img').alt = item.title;
+        card.querySelector('h3').textContent = item.title;
+        card.querySelector('p').textContent = item.description;
+        if (item.image_url && /^https?:\/\//i.test(item.image_url)) card.addEventListener('click', () => window.open(item.image_url, '_blank', 'noopener,noreferrer'));
+        grid.appendChild(card);
+    });
+
+    data.filter(item => item.content_type === 'review').forEach(item => {
+        const grid = document.querySelector('.reviews-grid');
+        if (!grid) return;
+        const card = createReviewCard({ name: item.title, role: item.category || 'عميل', text: item.description, rating: item.rating || 5 });
+        card.classList.remove('review-card-new');
+        grid.appendChild(card);
+    });
+
+    data.filter(item => item.content_type === 'video' && item.image_url).forEach(item => {
+        const videoId = item.image_url.match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{6,})/)?.[1];
+        if (!videoId || !videoGrid) return;
+        const card = document.createElement('div');
+        card.className = 'video-card';
+        card.dataset.videoId = videoId;
+        card.innerHTML = `<img class="video-preview" src="https://img.youtube.com/vi/${videoId}/hqdefault.jpg" alt=""><div class="video-card-content"><h3></h3><p></p></div>`;
+        card.querySelector('img').alt = item.title;
+        card.querySelector('h3').textContent = item.title;
+        card.querySelector('p').textContent = item.description;
+        card.addEventListener('click', () => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer'));
+        videoGrid.appendChild(card);
+    });
+}
+
+loadManagedContent();
+
 // ============================================
 // Portfolio Image Click
 // ============================================
@@ -789,6 +844,9 @@ if (reviewCards.length > 1 && reviewsGrid) {
         card.remove();
         const savedReviews = JSON.parse(localStorage.getItem('siteReviews') || '[]');
         localStorage.setItem('siteReviews', JSON.stringify(savedReviews.filter(review => review.id !== reviewId)));
+        if (reviewId.startsWith('db-') && siteSupabase) {
+            siteSupabase.from('site_content').delete().eq('id', reviewId.replace('db-', '')).then(() => {});
+        }
         reviewCards = Array.from(reviewsGrid.querySelectorAll('.review-card'));
         showReview(Math.min(activeReview, reviewCards.length - 1));
     };
@@ -815,7 +873,7 @@ if (reviewCards.length > 1 && reviewsGrid) {
         }
     });
 
-    reviewForm?.addEventListener('submit', (event) => {
+    reviewForm?.addEventListener('submit', async (event) => {
         event.preventDefault();
         const formData = new FormData(reviewForm);
         const review = {
@@ -826,6 +884,14 @@ if (reviewCards.length > 1 && reviewsGrid) {
             rating: Number(formData.get('reviewRating'))
         };
         if (!review.name || !review.role || !review.text) return;
+
+        if (siteSupabase) {
+            const { data } = await siteSupabase.from('site_content').insert({
+                content_type: 'review', title: review.name, category: review.role,
+                description: review.text, rating: review.rating, icon: getReviewIcon(review.role)
+            }).select().single();
+            if (data) review.id = `db-${data.id}`;
+        }
 
         const card = createReviewCard(review);
         reviewsGrid.appendChild(card);

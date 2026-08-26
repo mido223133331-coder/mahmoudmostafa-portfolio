@@ -25,6 +25,17 @@
         .admin-table td { color: var(--light-text); }
         .status-select { padding: 6px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--dark-bg); color: var(--text-color); }
         .empty-state { color: var(--light-text); }
+        .content-manager { margin-top: 28px; }
+        .content-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 24px; }
+        .content-form .full-width { grid-column: 1 / -1; }
+        .content-form input, .content-form select, .content-form textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(0,0,0,.18); color: var(--text-color); font: inherit; }
+        .content-form textarea { min-height: 100px; resize: vertical; }
+        .content-form-actions { display: flex; gap: 12px; align-items: center; }
+        .content-list { display: grid; gap: 10px; }
+        .content-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--border-color); border-radius: 8px; }
+        .content-row small { color: var(--light-text); }
+        .content-row-actions { display: flex; gap: 8px; }
+        @media (max-width: 760px) { .content-form { grid-template-columns: 1fr; } .content-form .full-width { grid-column: auto; } .content-row { align-items: flex-start; flex-direction: column; } }
         @media (max-width: 760px) { .admin-header { align-items: flex-start; flex-direction: column; } .admin-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -56,6 +67,21 @@
                     <h3>طلبات الباقات</h3>
                     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>التاريخ</th><th>العميل</th><th>البريد</th><th>الباقة</th><th>التفاصيل</th><th>الميزانية</th><th>الحالة</th></tr></thead><tbody id="ordersBody"></tbody></table></div>
                 </section>
+                <section class="admin-panel content-manager">
+                    <h3>إدارة محتوى الموقع</h3>
+                    <form class="content-form" id="contentForm">
+                        <input type="hidden" id="contentId">
+                        <select id="contentType" required><option value="setting">نص أو إعداد</option><option value="skill">مهارة</option><option value="portfolio">عمل</option><option value="video">فيديو</option><option value="package">باقة</option><option value="review">رأي عميل</option></select>
+                        <input id="contentTitle" placeholder="العنوان أو اسم العميل" required>
+                        <input id="contentCategory" placeholder="التصنيف أو المجال">
+                        <input id="contentImage" placeholder="رابط الصورة أو الفيديو">
+                        <input id="contentIcon" placeholder="اسم الأيقونة مثل fa-video">
+                        <input id="contentRating" type="number" min="1" max="5" placeholder="التقييم من 1 إلى 5">
+                        <textarea class="full-width" id="contentDescription" placeholder="الوصف أو النص أو تفاصيل المحتوى"></textarea>
+                        <div class="content-form-actions full-width"><button class="btn btn-primary" type="submit">حفظ المحتوى</button><button class="btn btn-secondary" id="contentCancel" type="button">إلغاء التعديل</button></div>
+                    </form>
+                    <div class="content-list" id="contentList"></div>
+                </section>
             </section>
         </div>
     </main>
@@ -69,6 +95,8 @@
         const loginForm = document.getElementById('loginForm');
         const loginMessage = document.getElementById('loginMessage');
         const ordersBody = document.getElementById('ordersBody');
+        const contentForm = document.getElementById('contentForm');
+        const contentList = document.getElementById('contentList');
         const LOCAL_ADMIN_SESSION_KEY = 'mahmoud_admin_session';
 
         function showMessage(message) { loginMessage.textContent = message; }
@@ -107,12 +135,40 @@
                 document.getElementById('orderCount').textContent = orders.length;
                 document.getElementById('newOrderCount').textContent = orders.filter(order => order.status === 'new').length;
                 ordersBody.innerHTML = orders.length ? orders.map(order => `<tr><td>${formatDate(order.created_at)}</td><td>${escapeHtml(order.customer_name)}</td><td>${escapeHtml(order.customer_email || '-')}</td><td>${escapeHtml(order.package_type)}</td><td>${escapeHtml(order.details)}</td><td>${order.budget ? Number(order.budget).toLocaleString('ar-EG') + ' جنيه' : '-'}</td><td><select class="status-select" data-order-id="${order.id}"><option value="new" ${order.status === 'new' ? 'selected' : ''}>جديد</option><option value="contacted" ${order.status === 'contacted' ? 'selected' : ''}>تم التواصل</option><option value="completed" ${order.status === 'completed' ? 'selected' : ''}>مكتمل</option><option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>ملغي</option></select></td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">لا توجد طلبات حتى الآن.</td></tr>';
+                await loadContent();
             } catch (exception) {
                 showMessage('حدث خطأ أثناء تحميل لوحة التحكم.');
             }
         }
 
         function escapeHtml(value) { return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character])); }
+
+        function resetContentForm() { contentForm.reset(); document.getElementById('contentId').value = ''; }
+        async function loadContent() {
+            const { data, error } = await client.from('site_content').select('*').order('content_type').order('sort_order');
+            if (error) { contentList.innerHTML = '<p class="empty-state">شغّل جدول site_content من ملف supabase-schema.sql أولًا.</p>'; return; }
+            contentList.innerHTML = data.length ? data.map(item => `<div class="content-row"><div><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.content_type)} ${item.is_visible ? '· ظاهر' : '· مخفي'}</small></div><div class="content-row-actions"><button class="btn btn-secondary edit-content" data-id="${item.id}" type="button">تعديل</button><button class="btn btn-secondary delete-content" data-id="${item.id}" type="button">حذف</button></div></div>`).join('') : '<p class="empty-state">لا يوجد محتوى مضاف حتى الآن.</p>';
+        }
+
+        contentForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const item = { content_type: document.getElementById('contentType').value, title: document.getElementById('contentTitle').value.trim(), category: document.getElementById('contentCategory').value.trim(), image_url: document.getElementById('contentImage').value.trim(), icon: document.getElementById('contentIcon').value.trim(), rating: Number(document.getElementById('contentRating').value) || null, description: document.getElementById('contentDescription').value.trim(), updated_at: new Date().toISOString() };
+            const id = document.getElementById('contentId').value;
+            const result = id ? await client.from('site_content').update(item).eq('id', id) : await client.from('site_content').insert(item);
+            if (result.error) { showMessage('تعذر حفظ المحتوى. تأكد من تشغيل جدول site_content والصلاحيات.'); return; }
+            resetContentForm(); await loadContent();
+        });
+
+        document.getElementById('contentCancel').addEventListener('click', resetContentForm);
+        contentList.addEventListener('click', async event => {
+            const id = event.target.dataset.id;
+            if (!id) return;
+            const { data, error } = await client.from('site_content').select('*').eq('id', id).single();
+            if (error) return;
+            if (event.target.classList.contains('edit-content')) {
+                document.getElementById('contentId').value = data.id; document.getElementById('contentType').value = data.content_type; document.getElementById('contentTitle').value = data.title; document.getElementById('contentCategory').value = data.category; document.getElementById('contentImage').value = data.image_url; document.getElementById('contentIcon').value = data.icon; document.getElementById('contentRating').value = data.rating || ''; document.getElementById('contentDescription').value = data.description;
+            } else if (event.target.classList.contains('delete-content') && confirm('حذف هذا المحتوى؟')) { await client.from('site_content').delete().eq('id', id); await loadContent(); }
+        });
 
         loginForm.addEventListener('submit', async event => {
             event.preventDefault();
