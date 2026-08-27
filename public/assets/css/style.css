@@ -2408,6 +2408,48 @@ body.dark-mode .manus img {
     .hero-buttons .btn {
         width: 100%;
     }
+
+    .contact {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .contact .container,
+    .contact-info {
+        width: 100%;
+    }
+
+    .contact-info {
+        align-items: center;
+        text-align: center;
+    }
+
+    .info-item {
+        width: 100%;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+    }
+
+    .info-item i {
+        min-width: 0;
+    }
+
+    .social-links {
+        justify-content: center;
+        margin-top: 10px;
+    }
+
+    .work-links {
+        width: 100%;
+        text-align: center;
+    }
+
+    .work-links ul {
+        justify-items: center;
+    }
 }
 
 body:not(.dark-mode) {
